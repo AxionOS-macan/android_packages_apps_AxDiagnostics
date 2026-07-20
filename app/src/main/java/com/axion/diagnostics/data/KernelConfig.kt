@@ -35,6 +35,9 @@ data class GpuConfig(
     val node: String?,
     val currentNode: String?,
     val usageNode: String?,
+    val minNode: String?,
+    val maxNode: String?,
+    val governorNode: String?,
     val frequencyMultiplier: Long,
     val values: List<Int>,
 )
@@ -52,9 +55,8 @@ object KernelConfig {
 
     fun scaleFreqToMhz(raw: Long): Int {
         return when {
-            raw > 1_000_000_000L -> (raw / 1_000_000_000L).toInt()
-            raw > 1_000_000L -> (raw / 1_000_000L).toInt()
-            raw > 1_000L -> (raw / 1_000L).toInt()
+            raw >= 1_000_000L -> (raw / 1_000_000L).toInt()
+            raw >= 1_000L -> (raw / 1_000L).toInt()
             else -> raw.toInt()
         }
     }
@@ -102,11 +104,14 @@ object KernelConfig {
 
     private fun parseGpuConfig(): GpuConfig {
         val file = File(CONFIG_PATH)
-        if (!file.exists()) return GpuConfig(null, null, null, 1L, emptyList())
+        if (!file.exists()) return GpuConfig(null, null, null, null, null, null, 1L, emptyList())
 
         var node: String? = null
         var currentNode: String? = null
         var usageNode: String? = null
+        var minNode: String? = null
+        var maxNode: String? = null
+        var governorNode: String? = null
         var multiplier = 1L
         var values = emptyList<Int>()
 
@@ -120,19 +125,22 @@ object KernelConfig {
                         node = parser.getAttributeValue(null, "node")
                         currentNode = parser.getAttributeValue(null, "currentNode")
                         usageNode = parser.getAttributeValue(null, "usageNode")
+                        minNode = parser.getAttributeValue(null, "minNode")
+                        maxNode = parser.getAttributeValue(null, "maxNode")
+                        governorNode = parser.getAttributeValue(null, "governorNode")
                         val multStr = parser.getAttributeValue(null, "frequencyMultiplier")
                         multiplier = multStr?.toLongOrNull() ?: 1L
 
                         val valStr = parser.getAttributeValue(null, "values")
                         values = valStr?.split(",")
                             ?.mapNotNull { it.trim().toLongOrNull() }
-                            ?.map { scaleFreqToMhz(it) } ?: emptyList()
+                            ?.map { scaleFreqToMhz(it * multiplier) } ?: emptyList()
                         break
                     }
                     eventType = parser.next()
                 }
             }
         }
-        return GpuConfig(node, currentNode, usageNode, multiplier, values)
+        return GpuConfig(node, currentNode, usageNode, minNode, maxNode, governorNode, multiplier, values)
     }
 }

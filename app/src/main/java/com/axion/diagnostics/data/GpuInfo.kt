@@ -43,31 +43,14 @@ object GpuCollector {
                     val busyFile = File(config.usageNode)
                     if (busyFile.exists()) {
                         runCatching {
-                            busyFile.readText().trim().replace("%", "").toInt()
+                            busyFile.readText().replace("%", "").trim().toInt()
                         }.getOrDefault(0).coerceIn(0, 100)
                     } else 0
                 } else 0
 
-                val governor = if (config.node != null) {
-                    val govFile = File(config.node, "governor")
-                    if (govFile.exists()) runCatching { govFile.readText().trim() }.getOrDefault("unknown") else "unknown"
-                } else "unknown"
-
-                val maxFreq = if (config.node != null) {
-                    val maxFile = File(config.node, "max_freq")
-                    if (maxFile.exists()) {
-                        val rawMax = runCatching { maxFile.readText().trim().toLong() }.getOrDefault(0L)
-                        KernelConfig.scaleFreqToMhz(rawMax)
-                    } else 0
-                } else 0
-
-                val minFreq = if (config.node != null) {
-                    val minFile = File(config.node, "min_freq")
-                    if (minFile.exists()) {
-                        val rawMin = runCatching { minFile.readText().trim().toLong() }.getOrDefault(0L)
-                        KernelConfig.scaleFreqToMhz(rawMin)
-                    } else 0
-                } else 0
+                val governor = readGovernor(config)
+                val maxFreq = readGpuFrequency(config.maxNode, config.node, "max_freq")
+                val minFreq = readGpuFrequency(config.minNode, config.node, "min_freq")
 
                 if (curFreq > 0) {
                     return GpuSnapshot(
@@ -84,5 +67,30 @@ object GpuCollector {
         }
 
         return GpuSnapshot(0, 0, 0, 0, "unavailable", emptyList(), false)
+    }
+
+    private fun readGpuFrequency(path: String?, node: String?, fallbackName: String): Int {
+        val file = path?.let { File(it) } ?: node?.let { File(it, fallbackName) } ?: return 0
+        if (!file.exists()) return 0
+        val raw = runCatching { file.readText().trim().toLong() }.getOrDefault(0L)
+        return if (file.name.endsWith("_clock_mhz")) {
+            raw.toInt()
+        } else {
+            KernelConfig.scaleFreqToMhz(raw)
+        }
+    }
+
+    private fun readGovernor(config: GpuConfig): String {
+        val file = config.governorNode?.let { File(it) }
+            ?: config.node?.let { File(it, "governor") }
+            ?: return "unknown"
+        if (!file.exists()) return "unknown"
+        val value = runCatching { file.readText().trim() }.getOrDefault("unknown")
+        return when {
+            file.name == "pwrscale" && value == "1" -> "pwrscale"
+            file.name == "pwrscale" && value == "0" -> "fixed"
+            value.isBlank() -> "unknown"
+            else -> value
+        }
     }
 }
