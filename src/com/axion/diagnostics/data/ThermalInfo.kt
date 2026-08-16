@@ -76,7 +76,9 @@ object ThermalCollector {
                     if (tripIdx > 20) break
                 }
 
-                zones.add(ThermalZone(zoneDir.name, type, tempC, trips))
+                if (isSensorZone(type, tempC)) {
+                    zones.add(ThermalZone(zoneDir.name, type, tempC, trips))
+                }
             }
         }
 
@@ -97,6 +99,16 @@ object ThermalCollector {
             maxTemperature = maxTemp?.temperatureC ?: 0f,
             hottest = maxTemp?.type ?: "none"
         )
+    }
+
+    private fun isSensorZone(type: String, temperatureC: Float): Boolean {
+        val lowerType = type.lowercase()
+        if (lowerType.contains("trip")) return false
+        if (lowerType.contains("bcl")) return false
+        if (lowerType.contains("ibat-lvl")) return false
+        if (lowerType == "socd") return false
+        if (temperatureC <= -100f) return false
+        return true
     }
 
     private fun readFileText(file: File): String =
