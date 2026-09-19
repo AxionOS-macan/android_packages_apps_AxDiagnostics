@@ -74,8 +74,8 @@ object GpuCollector {
 
         val busy = readBusyFromNode(config.usageNode)
         val governor = findGpuGovernor()
-        val maxFreq = readScaledFreqFromNode(config.node, "max_freq")
-        val minFreq = readScaledFreqFromNode(config.node, "min_freq")
+        val maxFreq = readGpuFrequency(config.maxNode, config.node, "max_freq")
+        val minFreq = readGpuFrequency(config.minNode, config.node, "min_freq")
 
         return GpuSnapshot(curFreq, maxFreq, minFreq, busy, governor, config.values, true)
     }
@@ -84,19 +84,31 @@ object GpuCollector {
         if (node == null) return 0
         val file = File(node)
         if (!file.exists()) return 0
-        return runCatching { file.readText().trim().replace("%", "").toInt() }.getOrDefault(0).coerceIn(0, 100)
+        return runCatching { file.readText().replace("%", "").trim().toInt() }.getOrDefault(0).coerceIn(0, 100)
     }
 
-    private fun readScaledFreqFromNode(baseNode: String?, fileName: String): Int {
-        if (baseNode == null) return 0
-        val file = File(baseNode, fileName)
+    private fun readGpuFrequency(path: String?, node: String?, fallbackName: String): Int {
+        val file = path?.let { File(it) } ?: node?.let { File(it, fallbackName) } ?: return 0
         if (!file.exists()) return 0
         val raw = runCatching { file.readText().trim().toLong() }.getOrDefault(0L)
-        return KernelConfig.scaleFreqToMhz(raw)
+        return if (file.name.endsWith("_clock_mhz")) raw.toInt() else KernelConfig.scaleFreqToMhz(raw)
     }
 
     private fun findGpuGovernor(): String {
-        val configNode = KernelConfig.gpuConfig.node
+        val config = KernelConfig.gpuConfig
+        val configuredGovernorNode = config.governorNode
+        if (configuredGovernorNode != null) {
+            val governorFile = File(configuredGovernorNode)
+            val value = runCatching { governorFile.readText().trim() }.getOrNull()
+            if (!value.isNullOrEmpty()) {
+                return when {
+                    governorFile.name == "pwrscale" && value == "1" -> "pwrscale"
+                    governorFile.name == "pwrscale" && value == "0" -> "fixed"
+                    else -> value
+                }
+            }
+        }
+        val configNode = config.node
         if (configNode != null) {
             val gov = runCatching { File(configNode, "governor").readText().trim() }.getOrNull()
             if (!gov.isNullOrEmpty()) return gov
